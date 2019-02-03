@@ -409,7 +409,7 @@ bool IsNetPlayRecording()
 }
 
 // NOTE: Host Thread
-void ChangePads(bool instantly)
+void ChangePads()
 {
   if (!Core::IsRunning())
     return;
@@ -422,7 +422,7 @@ void ChangePads(bool instantly)
       controllers |= (1 << i);
   }
 
-  if (instantly && (s_controllers & 0x0F) == controllers)
+  if ((s_controllers & 0x0F) == controllers)
     return;
 
   for (int i = 0; i < SerialInterface::MAX_SI_CHANNELS; ++i)
@@ -441,10 +441,7 @@ void ChangePads(bool instantly)
       }
     }
 
-    if (instantly)  // Changes from savestates need to be instantaneous
-      SerialInterface::AddDevice(device, i);
-    else
-      SerialInterface::ChangeDevice(device, i);
+    SerialInterface::ChangeDevice(device, i);
   }
 }
 
@@ -961,7 +958,7 @@ void LoadInput(const std::string& movie_path)
     t_record.WriteArray(&tmpHeader, 1);
   }
 
-  ChangePads(true);
+  ChangePads();
   if (SConfig::GetInstance().bWii)
     ChangeWiiPads(true);
 
@@ -1176,29 +1173,13 @@ void PlayController(GCPadStatus* PadStatus, int controllerID)
     PadStatus->button |= PAD_TRIGGER_R;
   if (s_padState.disc)
   {
-    // This implementation assumes the disc change will only happen once. Trying
-    // to change more than that will cause it to load the last disc every time.
-    // As far as I know, there are no 3+ disc games, so this should be fine.
-    bool found = false;
-    std::string path;
-    for (const std::string& iso_folder : SConfig::GetInstance().m_ISOFolder)
-    {
-      path = iso_folder + '/' + s_discChange;
-      if (File::Exists(path))
+    Core::RunAsCPUThread([] {
+      if (!DVDInterface::AutoChangeDisc())
       {
-        found = true;
-        break;
+        CPU::Break();
+        PanicAlertT("Change the disc to %s", s_discChange.c_str());
       }
-    }
-    if (found)
-    {
-      Core::RunAsCPUThread([&path] { DVDInterface::ChangeDisc(path); });
-    }
-    else
-    {
-      CPU::Break();
-      PanicAlertT("Change the disc to %s", s_discChange.c_str());
-    }
+    });
   }
 
   if (s_padState.reset)

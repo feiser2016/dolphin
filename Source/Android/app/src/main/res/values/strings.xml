@@ -136,6 +136,7 @@
     <string name="wiimote_speaker_description">Enable sound output through the speaker on a real Wiimote (DolphinBar required).</string>
     <string name="audio_stretch">Audio Stretching</string>
     <string name="audio_stretch_description">Stretches audio to reduce stuttering. Increases latency.</string>
+    <string name="auto_disc_change">Change Discs Automatically</string>
     <string name="enable_save_states">Enable Savestates</string>
     <string name="enable_save_states_description">WARNING: Savestates may not be compatible with future versions of Dolphin and can make it impossible to create normal saves in some cases. Never use savestates as the only way of saving your progress.</string>
     <string name="lock_emulation_landscape">Lock screen to landscape</string>
@@ -297,6 +298,9 @@
     <string name="emulation_controller_changed">You may have to reload the game after changing extensions.</string>
     <string name="emulation_touch_button_help">Swipe down from the top of the screen to access the menu.</string>
     <string name="emulation_touch_overlay_reset">Reset Overlay</string>
+    <string name="emulation_ir_group">Touch IR Pointer</string>
+    <string name="emulation_ir_sensitivity">IR Sensitivity</string>
+    <string name="emulation_choose_doubletap">Double tap button</string>
 
     <!-- GC Adapter Menu-->
     <string name="gc_adapter_rumble">Enable Vibration</string>
@@ -321,4 +325,10 @@
     <string name="homescreen_favorites">Favorites</string>
 
     <string name="select_dir">Select This Directory</string>
+
+    <!-- Misc -->
+    <string name="height">Height</string>
+    <string name="width">Width</string>
+    <string name="center">Center</string>
+
 </resources>
