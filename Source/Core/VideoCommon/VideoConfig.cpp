@@ -49,7 +49,12 @@ VideoConfig::VideoConfig()
   backend_info.bSupportsBPTCTextures = false;
 
   bEnableValidationLayer = false;
+
+#if defined(ANDROID)
+  bBackendMultithreading = false;
+#else
   bBackendMultithreading = true;
+#endif
 }
 
 void VideoConfig::Refresh()
@@ -69,12 +74,8 @@ void VideoConfig::Refresh()
   iAdapter = Config::Get(Config::GFX_ADAPTER);
 
   bWidescreenHack = Config::Get(Config::GFX_WIDESCREEN_HACK);
-  const AspectMode config_aspect_mode = Config::Get(Config::GFX_ASPECT_RATIO);
+  aspect_mode = Config::Get(Config::GFX_ASPECT_RATIO);
   suggested_aspect_mode = Config::Get(Config::GFX_SUGGESTED_ASPECT_RATIO);
-  if (config_aspect_mode == AspectMode::Auto)
-    aspect_mode = suggested_aspect_mode;
-  else
-    aspect_mode = config_aspect_mode;
   bCrop = Config::Get(Config::GFX_CROP);
   iSafeTextureCache_ColorSamples = Config::Get(Config::GFX_SAFE_TEXTURE_CACHE_COLOR_SAMPLES);
   bShowFPS = Config::Get(Config::GFX_SHOW_FPS);
@@ -143,18 +144,19 @@ void VideoConfig::Refresh()
   iStereoDepthPercentage = Config::Get(Config::GFX_STEREO_DEPTH_PERCENTAGE);
 
   bEFBAccessEnable = Config::Get(Config::GFX_HACK_EFB_ACCESS_ENABLE);
+  bEFBAccessDeferInvalidation = Config::Get(Config::GFX_HACK_EFB_DEFER_INVALIDATION);
   bBBoxEnable = Config::Get(Config::GFX_HACK_BBOX_ENABLE);
-  bBBoxPreferStencilImplementation =
-      Config::Get(Config::GFX_HACK_BBOX_PREFER_STENCIL_IMPLEMENTATION);
   bForceProgressive = Config::Get(Config::GFX_HACK_FORCE_PROGRESSIVE);
   bSkipEFBCopyToRam = Config::Get(Config::GFX_HACK_SKIP_EFB_COPY_TO_RAM);
   bSkipXFBCopyToRam = Config::Get(Config::GFX_HACK_SKIP_XFB_COPY_TO_RAM);
   bDisableCopyToVRAM = Config::Get(Config::GFX_HACK_DISABLE_COPY_TO_VRAM);
   bDeferEFBCopies = Config::Get(Config::GFX_HACK_DEFER_EFB_COPIES);
   bImmediateXFB = Config::Get(Config::GFX_HACK_IMMEDIATE_XFB);
+  bSkipPresentingDuplicateXFBs = Config::Get(Config::GFX_HACK_SKIP_DUPLICATE_XFBS);
   bCopyEFBScaled = Config::Get(Config::GFX_HACK_COPY_EFB_SCALED);
   bEFBEmulateFormatChanges = Config::Get(Config::GFX_HACK_EFB_EMULATE_FORMAT_CHANGES);
   bVertexRounding = Config::Get(Config::GFX_HACK_VERTEX_ROUDING);
+  iEFBAccessTileSize = Config::Get(Config::GFX_HACK_EFB_ACCESS_TILE_SIZE);
 
   bPerfQueriesEnable = Config::Get(Config::GFX_PERF_QUERIES_ENABLE);
 

@@ -13,21 +13,20 @@
 #include "Common/MsgHandler.h"
 
 #include "VideoBackends/Vulkan/CommandBufferManager.h"
+#include "VideoBackends/Vulkan/ObjectCache.h"
+#include "VideoBackends/Vulkan/VKTexture.h"
 #include "VideoBackends/Vulkan/VulkanContext.h"
 #include "VideoCommon/RenderBase.h"
 
 #if defined(VK_USE_PLATFORM_XLIB_KHR)
 #include <X11/Xlib.h>
-#elif defined(VK_USE_PLATFORM_XCB_KHR)
-#include <X11/Xlib-xcb.h>
-#include <X11/Xlib.h>
 #endif
 
 namespace Vulkan
 {
-SwapChain::SwapChain(void* display_handle, void* native_handle, VkSurfaceKHR surface, bool vsync)
-    : m_display_handle(display_handle), m_native_handle(native_handle), m_surface(surface),
-      m_vsync_enabled(vsync)
+SwapChain::SwapChain(const WindowSystemInfo& wsi, VkSurfaceKHR surface, bool vsync)
+    : m_wsi(wsi), m_surface(surface), m_vsync_enabled(vsync),
+      m_fullscreen_supported(g_vulkan_context->SupportsExclusiveFullscreen(wsi, surface))
 {
 }
 
@@ -36,158 +35,108 @@ SwapChain::~SwapChain()
   DestroySwapChainImages();
   DestroySwapChain();
   DestroySurface();
-  DestroySemaphores();
 }
 
-VkSurfaceKHR SwapChain::CreateVulkanSurface(VkInstance instance, void* display_handle, void* hwnd)
+VkSurfaceKHR SwapChain::CreateVulkanSurface(VkInstance instance, const WindowSystemInfo& wsi)
 {
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
-  VkWin32SurfaceCreateInfoKHR surface_create_info = {
-      VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,  // VkStructureType               sType
-      nullptr,                                          // const void*                   pNext
-      0,                                                // VkWin32SurfaceCreateFlagsKHR  flags
-      nullptr,                                          // HINSTANCE                     hinstance
-      reinterpret_cast<HWND>(hwnd)                      // HWND                          hwnd
-  };
-
-  VkSurfaceKHR surface;
-  VkResult res = vkCreateWin32SurfaceKHR(instance, &surface_create_info, nullptr, &surface);
-  if (res != VK_SUCCESS)
+  if (wsi.type == WindowSystemType::Windows)
   {
-    LOG_VULKAN_ERROR(res, "vkCreateWin32SurfaceKHR failed: ");
-    return VK_NULL_HANDLE;
+    VkWin32SurfaceCreateInfoKHR surface_create_info = {
+        VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,  // VkStructureType               sType
+        nullptr,                                          // const void*                   pNext
+        0,                                                // VkWin32SurfaceCreateFlagsKHR  flags
+        nullptr,                                          // HINSTANCE                     hinstance
+        reinterpret_cast<HWND>(wsi.render_surface)        // HWND                          hwnd
+    };
+
+    VkSurfaceKHR surface;
+    VkResult res = vkCreateWin32SurfaceKHR(instance, &surface_create_info, nullptr, &surface);
+    if (res != VK_SUCCESS)
+    {
+      LOG_VULKAN_ERROR(res, "vkCreateWin32SurfaceKHR failed: ");
+      return VK_NULL_HANDLE;
+    }
+
+    return surface;
   }
-
-  return surface;
-
-#elif defined(VK_USE_PLATFORM_XLIB_KHR)
-  VkXlibSurfaceCreateInfoKHR surface_create_info = {
-      VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,  // VkStructureType               sType
-      nullptr,                                         // const void*                   pNext
-      0,                                               // VkXlibSurfaceCreateFlagsKHR   flags
-      static_cast<Display*>(display_handle),           // Display*                      dpy
-      reinterpret_cast<Window>(hwnd)                   // Window                        window
-  };
-
-  VkSurfaceKHR surface;
-  VkResult res = vkCreateXlibSurfaceKHR(instance, &surface_create_info, nullptr, &surface);
-  if (res != VK_SUCCESS)
-  {
-    LOG_VULKAN_ERROR(res, "vkCreateXlibSurfaceKHR failed: ");
-    return VK_NULL_HANDLE;
-  }
-
-  return surface;
-
-#elif defined(VK_USE_PLATFORM_XCB_KHR)
-  // If we ever switch to using xcb, we should pass the display handle as well.
-  xcb_connection_t* connection = XGetXCBConnection(display_handle);
-
-  VkXcbSurfaceCreateInfoKHR surface_create_info = {
-      VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,  // VkStructureType               sType
-      nullptr,                                        // const void*                   pNext
-      0,                                              // VkXcbSurfaceCreateFlagsKHR    flags
-      connection,                                     // xcb_connection_t*             connection
-      static_cast<xcb_window_t>(reinterpret_cast<uintptr_t>(hwnd))  // xcb_window_t window
-  };
-
-  VkSurfaceKHR surface;
-  VkResult res = vkCreateXcbSurfaceKHR(instance, &surface_create_info, nullptr, &surface);
-  if (res != VK_SUCCESS)
-  {
-    LOG_VULKAN_ERROR(res, "vkCreateXcbSurfaceKHR failed: ");
-    return VK_NULL_HANDLE;
-  }
-
-  return surface;
-
-#elif defined(VK_USE_PLATFORM_ANDROID_KHR)
-  VkAndroidSurfaceCreateInfoKHR surface_create_info = {
-      VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,  // VkStructureType                sType
-      nullptr,                                            // const void*                    pNext
-      0,                                                  // VkAndroidSurfaceCreateFlagsKHR flags
-      reinterpret_cast<ANativeWindow*>(hwnd)              // ANativeWindow*                 window
-  };
-
-  VkSurfaceKHR surface;
-  VkResult res = vkCreateAndroidSurfaceKHR(instance, &surface_create_info, nullptr, &surface);
-  if (res != VK_SUCCESS)
-  {
-    LOG_VULKAN_ERROR(res, "vkCreateAndroidSurfaceKHR failed: ");
-    return VK_NULL_HANDLE;
-  }
-
-  return surface;
-
-#elif defined(VK_USE_PLATFORM_MACOS_MVK)
-  VkMacOSSurfaceCreateInfoMVK surface_create_info = {
-      VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK, nullptr, 0, hwnd};
-
-  VkSurfaceKHR surface;
-  VkResult res = vkCreateMacOSSurfaceMVK(instance, &surface_create_info, nullptr, &surface);
-  if (res != VK_SUCCESS)
-  {
-    LOG_VULKAN_ERROR(res, "vkCreateMacOSSurfaceMVK failed: ");
-    return VK_NULL_HANDLE;
-  }
-
-  return surface;
-#else
-  return VK_NULL_HANDLE;
 #endif
+
+#if defined(VK_USE_PLATFORM_XLIB_KHR)
+  if (wsi.type == WindowSystemType::X11)
+  {
+    VkXlibSurfaceCreateInfoKHR surface_create_info = {
+        VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,  // VkStructureType               sType
+        nullptr,                                         // const void*                   pNext
+        0,                                               // VkXlibSurfaceCreateFlagsKHR   flags
+        static_cast<Display*>(wsi.display_connection),   // Display*                      dpy
+        reinterpret_cast<Window>(wsi.render_surface)     // Window                        window
+    };
+
+    VkSurfaceKHR surface;
+    VkResult res = vkCreateXlibSurfaceKHR(instance, &surface_create_info, nullptr, &surface);
+    if (res != VK_SUCCESS)
+    {
+      LOG_VULKAN_ERROR(res, "vkCreateXlibSurfaceKHR failed: ");
+      return VK_NULL_HANDLE;
+    }
+
+    return surface;
+  }
+#endif
+
+#if defined(VK_USE_PLATFORM_ANDROID_KHR)
+  if (wsi.type == WindowSystemType::Android)
+  {
+    VkAndroidSurfaceCreateInfoKHR surface_create_info = {
+        VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,  // VkStructureType                sType
+        nullptr,                                            // const void*                    pNext
+        0,                                                  // VkAndroidSurfaceCreateFlagsKHR flags
+        reinterpret_cast<ANativeWindow*>(wsi.render_surface)  // ANativeWindow* window
+    };
+
+    VkSurfaceKHR surface;
+    VkResult res = vkCreateAndroidSurfaceKHR(instance, &surface_create_info, nullptr, &surface);
+    if (res != VK_SUCCESS)
+    {
+      LOG_VULKAN_ERROR(res, "vkCreateAndroidSurfaceKHR failed: ");
+      return VK_NULL_HANDLE;
+    }
+
+    return surface;
+  }
+#endif
+
+#if defined(VK_USE_PLATFORM_METAL_EXT)
+  if (wsi.type == WindowSystemType::MacOS)
+  {
+    VkMetalSurfaceCreateInfoEXT surface_create_info = {
+        VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT, nullptr, 0,
+        static_cast<const CAMetalLayer*>(wsi.render_surface)};
+
+    VkSurfaceKHR surface;
+    VkResult res = vkCreateMetalSurfaceEXT(instance, &surface_create_info, nullptr, &surface);
+    if (res != VK_SUCCESS)
+    {
+      LOG_VULKAN_ERROR(res, "vkCreateMetalSurfaceEXT failed: ");
+      return VK_NULL_HANDLE;
+    }
+
+    return surface;
+  }
+#endif
+
+  return VK_NULL_HANDLE;
 }
 
-std::unique_ptr<SwapChain> SwapChain::Create(void* display_handle, void* native_handle,
-                                             VkSurfaceKHR surface, bool vsync)
+std::unique_ptr<SwapChain> SwapChain::Create(const WindowSystemInfo& wsi, VkSurfaceKHR surface,
+                                             bool vsync)
 {
-  std::unique_ptr<SwapChain> swap_chain =
-      std::make_unique<SwapChain>(display_handle, native_handle, surface, vsync);
-
-  if (!swap_chain->CreateSemaphores() || !swap_chain->CreateSwapChain() ||
-      !swap_chain->SetupSwapChainImages())
-  {
+  std::unique_ptr<SwapChain> swap_chain = std::make_unique<SwapChain>(wsi, surface, vsync);
+  if (!swap_chain->CreateSwapChain() || !swap_chain->SetupSwapChainImages())
     return nullptr;
-  }
 
   return swap_chain;
-}
-
-bool SwapChain::CreateSemaphores()
-{
-  // Create two semaphores, one that is triggered when the swapchain buffer is ready, another after
-  // submit and before present
-  VkSemaphoreCreateInfo semaphore_info = {
-      VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,  // VkStructureType          sType
-      nullptr,                                  // const void*              pNext
-      0                                         // VkSemaphoreCreateFlags   flags
-  };
-
-  VkResult res;
-  if ((res = vkCreateSemaphore(g_vulkan_context->GetDevice(), &semaphore_info, nullptr,
-                               &m_image_available_semaphore)) != VK_SUCCESS ||
-      (res = vkCreateSemaphore(g_vulkan_context->GetDevice(), &semaphore_info, nullptr,
-                               &m_rendering_finished_semaphore)) != VK_SUCCESS)
-  {
-    LOG_VULKAN_ERROR(res, "vkCreateSemaphore failed: ");
-    return false;
-  }
-
-  return true;
-}
-
-void SwapChain::DestroySemaphores()
-{
-  if (m_image_available_semaphore)
-  {
-    vkDestroySemaphore(g_vulkan_context->GetDevice(), m_image_available_semaphore, nullptr);
-    m_image_available_semaphore = VK_NULL_HANDLE;
-  }
-
-  if (m_rendering_finished_semaphore)
-  {
-    vkDestroySemaphore(g_vulkan_context->GetDevice(), m_rendering_finished_semaphore, nullptr);
-    m_rendering_finished_semaphore = VK_NULL_HANDLE;
-  }
 }
 
 bool SwapChain::SelectSurfaceFormat()
@@ -220,7 +169,7 @@ bool SwapChain::SelectSurfaceFormat()
     // Some drivers seem to return a SRGB format here (Intel Mesa).
     // This results in gamma correction when presenting to the screen, which we don't want.
     // Use a linear format instead, if this is the case.
-    VkFormat format = Util::GetLinearFormat(surface_format.format);
+    VkFormat format = VKTexture::GetLinearFormat(surface_format.format);
     if (format == VK_FORMAT_R8G8B8A8_UNORM)
       m_texture_format = AbstractTextureFormat::RGBA8;
     else if (format == VK_FORMAT_B8G8R8A8_UNORM)
@@ -320,10 +269,10 @@ bool SwapChain::CreateSwapChain()
     size.width = std::max(g_renderer->GetBackbufferWidth(), 1);
     size.height = std::max(g_renderer->GetBackbufferHeight(), 1);
   }
-  size.width = MathUtil::Clamp(size.width, surface_capabilities.minImageExtent.width,
-                               surface_capabilities.maxImageExtent.width);
-  size.height = MathUtil::Clamp(size.height, surface_capabilities.minImageExtent.height,
-                                surface_capabilities.maxImageExtent.height);
+  size.width = std::clamp(size.width, surface_capabilities.minImageExtent.width,
+                          surface_capabilities.maxImageExtent.width);
+  size.height = std::clamp(size.height, surface_capabilities.minImageExtent.height,
+                           surface_capabilities.maxImageExtent.height);
 
   // Prefer identity transform if possible
   VkSurfaceTransformFlagBitsKHR transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
@@ -343,6 +292,7 @@ bool SwapChain::CreateSwapChain()
 
   // Store the old/current swap chain when recreating for resize
   VkSwapchainKHR old_swap_chain = m_swap_chain;
+  m_swap_chain = VK_NULL_HANDLE;
 
   // Now we can actually create the swap chain
   VkSwapchainCreateInfoKHR swap_chain_info = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -375,8 +325,36 @@ bool SwapChain::CreateSwapChain()
     swap_chain_info.pQueueFamilyIndices = indices.data();
   }
 
-  res =
-      vkCreateSwapchainKHR(g_vulkan_context->GetDevice(), &swap_chain_info, nullptr, &m_swap_chain);
+#ifdef SUPPORTS_VULKAN_EXCLUSIVE_FULLSCREEN
+  if (m_fullscreen_supported)
+  {
+    VkSurfaceFullScreenExclusiveInfoEXT fullscreen_support = {};
+    swap_chain_info.pNext = &fullscreen_support;
+    fullscreen_support.sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_INFO_EXT;
+    fullscreen_support.fullScreenExclusive = VK_FULL_SCREEN_EXCLUSIVE_APPLICATION_CONTROLLED_EXT;
+
+    auto platform_info = g_vulkan_context->GetPlatformExclusiveFullscreenInfo(m_wsi);
+    fullscreen_support.pNext = &platform_info;
+
+    res = vkCreateSwapchainKHR(g_vulkan_context->GetDevice(), &swap_chain_info, nullptr,
+                               &m_swap_chain);
+    if (res != VK_SUCCESS)
+    {
+      // Try without exclusive fullscreen.
+      WARN_LOG(VIDEO, "Failed to create exclusive fullscreen swapchain, trying without.");
+      swap_chain_info.pNext = nullptr;
+      g_Config.backend_info.bSupportsExclusiveFullscreen = false;
+      g_ActiveConfig.backend_info.bSupportsExclusiveFullscreen = false;
+      m_fullscreen_supported = false;
+    }
+  }
+#endif
+
+  if (m_swap_chain == VK_NULL_HANDLE)
+  {
+    res = vkCreateSwapchainKHR(g_vulkan_context->GetDevice(), &swap_chain_info, nullptr,
+                               &m_swap_chain);
+  }
   if (res != VK_SUCCESS)
   {
     LOG_VULKAN_ERROR(res, "vkCreateSwapchainKHR failed: ");
@@ -412,11 +390,13 @@ bool SwapChain::SetupSwapChainImages()
                                 images.data());
   ASSERT(res == VK_SUCCESS);
 
-  m_render_pass = g_object_cache->GetRenderPass(m_surface_format.format, VK_FORMAT_UNDEFINED, 1,
-                                                VK_ATTACHMENT_LOAD_OP_LOAD);
-  m_clear_render_pass = g_object_cache->GetRenderPass(m_surface_format.format, VK_FORMAT_UNDEFINED,
-                                                      1, VK_ATTACHMENT_LOAD_OP_CLEAR);
-  if (m_render_pass == VK_NULL_HANDLE || m_clear_render_pass == VK_NULL_HANDLE)
+  const TextureConfig texture_config(TextureConfig(
+      m_width, m_height, 1, m_layers, 1, m_texture_format, AbstractTextureFlag_RenderTarget));
+  const VkRenderPass load_render_pass = g_object_cache->GetRenderPass(
+      m_surface_format.format, VK_FORMAT_UNDEFINED, 1, VK_ATTACHMENT_LOAD_OP_LOAD);
+  const VkRenderPass clear_render_pass = g_object_cache->GetRenderPass(
+      m_surface_format.format, VK_FORMAT_UNDEFINED, 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
+  if (load_render_pass == VK_NULL_HANDLE || clear_render_pass == VK_NULL_HANDLE)
   {
     PanicAlert("Failed to get swap chain render passes.");
     return false;
@@ -429,26 +409,17 @@ bool SwapChain::SetupSwapChainImages()
     image.image = images[i];
 
     // Create texture object, which creates a view of the backbuffer
-    image.texture = Texture2D::CreateFromExistingImage(
-        m_width, m_height, 1, 1, m_surface_format.format, VK_SAMPLE_COUNT_1_BIT,
-        VK_IMAGE_VIEW_TYPE_2D, image.image);
+    image.texture =
+        VKTexture::CreateAdopted(texture_config, image.image,
+                                 m_layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D,
+                                 VK_IMAGE_LAYOUT_UNDEFINED);
+    if (!image.texture)
+      return false;
 
-    VkImageView view = image.texture->GetView();
-    VkFramebufferCreateInfo framebuffer_info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                                                nullptr,
-                                                0,
-                                                m_render_pass,
-                                                1,
-                                                &view,
-                                                m_width,
-                                                m_height,
-                                                m_layers};
-
-    res = vkCreateFramebuffer(g_vulkan_context->GetDevice(), &framebuffer_info, nullptr,
-                              &image.framebuffer);
-    if (res != VK_SUCCESS)
+    image.framebuffer = VKFramebuffer::Create(image.texture.get(), nullptr);
+    if (!image.framebuffer)
     {
-      LOG_VULKAN_ERROR(res, "vkCreateFramebuffer failed: ");
+      image.texture.reset();
       return false;
     }
 
@@ -460,10 +431,11 @@ bool SwapChain::SetupSwapChainImages()
 
 void SwapChain::DestroySwapChainImages()
 {
-  for (const auto& it : m_swap_chain_images)
+  for (auto& it : m_swap_chain_images)
   {
     // Images themselves are cleaned up by the swap chain object
-    vkDestroyFramebuffer(g_vulkan_context->GetDevice(), it.framebuffer, nullptr);
+    it.framebuffer.reset();
+    it.texture.reset();
   }
   m_swap_chain_images.clear();
 }
@@ -473,6 +445,10 @@ void SwapChain::DestroySwapChain()
   if (m_swap_chain == VK_NULL_HANDLE)
     return;
 
+  // Release exclusive fullscreen before destroying.
+  if (m_current_fullscreen_state)
+    SetFullscreenState(false);
+
   vkDestroySwapchainKHR(g_vulkan_context->GetDevice(), m_swap_chain, nullptr);
   m_swap_chain = VK_NULL_HANDLE;
 }
@@ -480,8 +456,8 @@ void SwapChain::DestroySwapChain()
 VkResult SwapChain::AcquireNextImage()
 {
   VkResult res = vkAcquireNextImageKHR(g_vulkan_context->GetDevice(), m_swap_chain, UINT64_MAX,
-                                       m_image_available_semaphore, VK_NULL_HANDLE,
-                                       &m_current_swap_chain_image_index);
+                                       g_command_buffer_mgr->GetCurrentCommandBufferSemaphore(),
+                                       VK_NULL_HANDLE, &m_current_swap_chain_image_index);
   if (res != VK_SUCCESS && res != VK_ERROR_OUT_OF_DATE_KHR && res != VK_SUBOPTIMAL_KHR)
     LOG_VULKAN_ERROR(res, "vkAcquireNextImageKHR failed: ");
 
@@ -523,6 +499,39 @@ bool SwapChain::SetVSync(bool enabled)
   return RecreateSwapChain();
 }
 
+bool SwapChain::SetFullscreenState(bool state)
+{
+#ifdef SUPPORTS_VULKAN_EXCLUSIVE_FULLSCREEN
+  if (m_current_fullscreen_state == state)
+    return true;
+
+  if (state)
+  {
+    VkResult res = vkAcquireFullScreenExclusiveModeEXT(g_vulkan_context->GetDevice(), m_swap_chain);
+    if (res != VK_SUCCESS)
+    {
+      LOG_VULKAN_ERROR(res, "vkAcquireFullScreenExclusiveModeEXT failed:");
+      return false;
+    }
+
+    INFO_LOG(VIDEO, "Exclusive fullscreen acquired.");
+  }
+  else
+  {
+    VkResult res = vkReleaseFullScreenExclusiveModeEXT(g_vulkan_context->GetDevice(), m_swap_chain);
+    if (res != VK_SUCCESS)
+      LOG_VULKAN_ERROR(res, "vkReleaseFullScreenExclusiveModeEXT failed:");
+
+    INFO_LOG(VIDEO, "Exclusive fullscreen released.");
+  }
+
+  m_current_fullscreen_state = state;
+  return true;
+#else
+  return false;
+#endif
+}
+
 bool SwapChain::RecreateSurface(void* native_handle)
 {
   // Destroy the old swap chain, images, and surface.
@@ -531,9 +540,8 @@ bool SwapChain::RecreateSurface(void* native_handle)
   DestroySurface();
 
   // Re-create the surface with the new native handle
-  m_native_handle = native_handle;
-  m_surface =
-      CreateVulkanSurface(g_vulkan_context->GetVulkanInstance(), m_display_handle, native_handle);
+  m_wsi.render_surface = native_handle;
+  m_surface = CreateVulkanSurface(g_vulkan_context->GetVulkanInstance(), m_wsi);
   if (m_surface == VK_NULL_HANDLE)
     return false;
 
@@ -552,6 +560,13 @@ bool SwapChain::RecreateSurface(void* native_handle)
     PanicAlert("Recreated surface does not support presenting.");
     return false;
   }
+
+  // Update exclusive fullscreen support (unlikely to change).
+  m_fullscreen_supported = g_vulkan_context->SupportsExclusiveFullscreen(m_wsi, m_surface);
+  g_Config.backend_info.bSupportsExclusiveFullscreen = m_fullscreen_supported;
+  g_ActiveConfig.backend_info.bSupportsExclusiveFullscreen = m_fullscreen_supported;
+  m_current_fullscreen_state = false;
+  m_next_fullscreen_state = false;
 
   // Finally re-create the swap chain
   if (!CreateSwapChain() || !SetupSwapChainImages())

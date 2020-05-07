@@ -6,9 +6,13 @@
 
 #include <cstdarg>
 #include <cstring>
+#include <iterator>
 #include <map>
 #include <string>
+#include <type_traits>
 #include <vector>
+
+#include <fmt/format.h>
 
 #include "Common/CommonTypes.h"
 #include "Common/StringUtil.h"
@@ -48,17 +52,6 @@ public:
    * Tells us that a specific constant range (including last_index) is being used by the shader
    */
   void SetConstantsUsed(unsigned int first_index, unsigned int last_index) {}
-  /*
-   * Returns a pointer to an internally stored object of the uid_data type.
-   * @warning since most child classes use the default implementation you shouldn't access this
-   * directly without adding precautions against nullptr access (e.g. via adding a dummy structure,
-   * cf. the vertex/pixel shader generators)
-   */
-  template <class uid_data>
-  uid_data* GetUidData()
-  {
-    return nullptr;
-  }
 };
 
 /*
@@ -74,37 +67,36 @@ template <class uid_data>
 class ShaderUid : public ShaderGeneratorInterface
 {
 public:
+  static_assert(std::is_trivially_copyable_v<uid_data>,
+                "uid_data must be a trivially copyable type");
+
   bool operator==(const ShaderUid& obj) const
   {
-    return memcmp(this->values, obj.values, data.NumValues() * sizeof(*values)) == 0;
+    return memcmp(GetUidData(), obj.GetUidData(), GetUidDataSize()) == 0;
   }
 
-  bool operator!=(const ShaderUid& obj) const
-  {
-    return memcmp(this->values, obj.values, data.NumValues() * sizeof(*values)) != 0;
-  }
+  bool operator!=(const ShaderUid& obj) const { return !operator==(obj); }
 
   // determines the storage order inside STL containers
   bool operator<(const ShaderUid& obj) const
   {
-    return memcmp(this->values, obj.values, data.NumValues() * sizeof(*values)) < 0;
+    return memcmp(GetUidData(), obj.GetUidData(), GetUidDataSize()) < 0;
   }
 
-  template <class uid_data2>
-  uid_data2* GetUidData()
-  {
-    return &data;
-  }
+  // Returns a pointer to an internally stored object of the uid_data type.
+  uid_data* GetUidData() { return &data; }
+
+  // Returns a pointer to an internally stored object of the uid_data type.
   const uid_data* GetUidData() const { return &data; }
-  const u8* GetUidDataRaw() const { return &values[0]; }
-  size_t GetUidDataSize() const { return sizeof(values); }
+
+  // Returns the raw bytes that make up the shader UID.
+  const u8* GetUidDataRaw() const { return reinterpret_cast<const u8*>(&data); }
+
+  // Returns the size of the underlying UID data structure in bytes.
+  size_t GetUidDataSize() const { return sizeof(data); }
 
 private:
-  union
-  {
-    uid_data data;
-    u8 values[sizeof(uid_data)];
-  };
+  uid_data data{};
 };
 
 class ShaderCode : public ShaderGeneratorInterface
@@ -112,6 +104,8 @@ class ShaderCode : public ShaderGeneratorInterface
 public:
   ShaderCode() { m_buffer.reserve(16384); }
   const std::string& GetBuffer() const { return m_buffer; }
+
+  // Deprecated: Writes format strings using traditional printf format strings.
   void Write(const char* fmt, ...)
 #ifdef __GNUC__
       __attribute__((format(printf, 2, 3)))
@@ -121,6 +115,13 @@ public:
     va_start(arglist, fmt);
     m_buffer += StringFromFormatV(fmt, arglist);
     va_end(arglist);
+  }
+
+  // Writes format strings using fmtlib format strings.
+  template <typename... Args>
+  void WriteFmt(std::string_view format, Args&&... args)
+  {
+    fmt::format_to(std::back_inserter(m_buffer), format, std::forward<Args>(args)...);
   }
 
 protected:
@@ -181,7 +182,8 @@ union ShaderHostConfig
     u32 backend_dynamic_sampler_indexing : 1;
     u32 backend_shader_framebuffer_fetch : 1;
     u32 backend_logic_op : 1;
-    u32 pad : 10;
+    u32 backend_palette_conversion : 1;
+    u32 pad : 9;
   };
 
   static ShaderHostConfig GetCurrent();
@@ -216,7 +218,7 @@ template <class T>
 inline void GenerateVSOutputMembers(T& object, APIType api_type, u32 texgens,
                                     const ShaderHostConfig& host_config, const char* qualifier)
 {
-  DefineOutputMember(object, api_type, qualifier, "float4", "pos", -1, "POSITION");
+  DefineOutputMember(object, api_type, qualifier, "float4", "pos", -1, "SV_Position");
   DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 0, "COLOR", 0);
   DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 1, "COLOR", 1);
 

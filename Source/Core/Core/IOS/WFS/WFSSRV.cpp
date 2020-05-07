@@ -355,7 +355,7 @@ IPCCommandResult WFSSRV::IOCtl(const IOCtlRequest& request)
   default:
     // TODO(wfs): Should be returning -3. However until we have everything
     // properly stubbed it's easier to simulate the methods succeeding.
-    request.DumpUnknown(GetDeviceName(), LogTypes::IOS, LogTypes::LWARNING);
+    request.DumpUnknown(GetDeviceName(), Common::Log::IOS, Common::Log::LWARNING);
     Memory::Memset(request.buffer_out, 0, request.buffer_out_size);
     break;
   }
@@ -456,7 +456,7 @@ void WFSSRV::ReleaseFileDescriptor(u16 fd)
   fd_obj->in_use = false;
 
   // Garbage collect and shrink the array if possible.
-  while (m_fds.size() > 0 && !m_fds[m_fds.size() - 1].in_use)
+  while (!m_fds.empty() && !m_fds[m_fds.size() - 1].in_use)
   {
     m_fds.resize(m_fds.size() - 1);
   }

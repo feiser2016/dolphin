@@ -19,6 +19,7 @@
 #include <deque>
 #include <list>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <type_traits>
@@ -144,6 +145,36 @@ public:
     Do(x.second);
   }
 
+  template <typename T>
+  void Do(std::optional<T>& x)
+  {
+    bool present = x.has_value();
+    Do(present);
+
+    switch (mode)
+    {
+    case MODE_READ:
+      if (present)
+      {
+        x = std::make_optional<T>();
+        Do(x.value());
+      }
+      else
+      {
+        x = std::nullopt;
+      }
+      break;
+
+    case MODE_WRITE:
+    case MODE_MEASURE:
+    case MODE_VERIFY:
+      if (present)
+        Do(x.value());
+
+      break;
+    }
+  }
+
   template <typename T, std::size_t N>
   void DoArray(std::array<T, N>& x)
   {
@@ -262,7 +293,8 @@ private:
     Do(size);
     container.resize(size);
 
-    DoArray(&container[0], size);
+    if (size > 0)
+      DoArray(&container[0], size);
   }
 
   template <typename T>

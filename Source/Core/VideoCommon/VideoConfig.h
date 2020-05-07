@@ -14,7 +14,8 @@
 #include <vector>
 
 #include "Common/CommonTypes.h"
-#include "VideoCommon/VideoCommon.h"
+
+enum class APIType;
 
 // Log in two categories, and save three other options in the same byte
 #define CONF_LOG 1
@@ -39,7 +40,7 @@ enum class StereoMode : int
   TAB,
   Anaglyph,
   QuadBuffer,
-  Nvidia3DVision
+  Passive
 };
 
 enum class ShaderCompilationMode : int
@@ -112,9 +113,9 @@ struct VideoConfig final
 
   // Hacks
   bool bEFBAccessEnable;
+  bool bEFBAccessDeferInvalidation;
   bool bPerfQueriesEnable;
   bool bBBoxEnable;
-  bool bBBoxPreferStencilImplementation;  // OpenGL-only, to see how slow it is compared to SSBOs
   bool bForceProgressive;
 
   bool bEFBEmulateFormatChanges;
@@ -123,12 +124,14 @@ struct VideoConfig final
   bool bDisableCopyToVRAM;
   bool bDeferEFBCopies;
   bool bImmediateXFB;
+  bool bSkipPresentingDuplicateXFBs;
   bool bCopyEFBScaled;
   int iSafeTextureCache_ColorSamples;
   float fAspectRatioHackW, fAspectRatioHackH;
   bool bEnablePixelLighting;
   bool bFastDepthCalc;
   bool bVertexRounding;
+  int iEFBAccessTileSize;
   int iLog;           // CONF_ bits
   int iSaveTargetId;  // TODO: Should be dropped
 
@@ -186,6 +189,7 @@ struct VideoConfig final
     std::string AdapterName;  // for OpenGL
 
     u32 MaxTextureSize;
+    bool bUsesLowerLeftOrigin;
 
     bool bSupportsExclusiveFullscreen;
     bool bSupportsDualSourceBlend;
@@ -215,6 +219,10 @@ struct VideoConfig final
     bool bSupportsBPTCTextures;
     bool bSupportsFramebufferFetch;  // Used as an alternative to dual-source blend on GLES
     bool bSupportsBackgroundCompiling;
+    bool bSupportsLargePoints;
+    bool bSupportsPartialDepthCopies;
+    bool bSupportsShaderBinaries;
+    bool bSupportsPipelineCacheData;
   } backend_info;
 
   // Utility
@@ -222,12 +230,6 @@ struct VideoConfig final
   bool ExclusiveFullscreenEnabled() const
   {
     return backend_info.bSupportsExclusiveFullscreen && !bBorderlessFullscreen;
-  }
-  bool BBoxUseFragmentShaderImplementation() const
-  {
-    if (backend_info.api_type == APIType::OpenGL && bBBoxPreferStencilImplementation)
-      return false;
-    return backend_info.bSupportsBBox && backend_info.bSupportsFragmentStoresAndAtomics;
   }
   bool UseGPUTextureDecoding() const
   {

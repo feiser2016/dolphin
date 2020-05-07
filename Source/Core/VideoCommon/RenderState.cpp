@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include "VideoCommon/SamplerCommon.h"
+#include "VideoCommon/TextureConfig.h"
 
 void RasterizationState::Generate(const BPMemory& bp, PrimitiveType primitive_type)
 {
@@ -18,6 +19,12 @@ void RasterizationState::Generate(const BPMemory& bp, PrimitiveType primitive_ty
 }
 
 RasterizationState& RasterizationState::operator=(const RasterizationState& rhs)
+{
+  hex = rhs.hex;
+  return *this;
+}
+
+FramebufferState& FramebufferState::operator=(const FramebufferState& rhs)
 {
   hex = rhs.hex;
   return *this;
@@ -160,6 +167,42 @@ void BlendingState::Generate(const BPMemory& bp)
   }
 }
 
+void BlendingState::ApproximateLogicOpWithBlending()
+{
+  // Any of these which use SRC as srcFactor or DST as dstFactor won't be correct.
+  // This is because the two are aliased to one another (see the enum).
+  struct LogicOpApproximation
+  {
+    bool subtract;
+    BlendMode::BlendFactor srcfactor;
+    BlendMode::BlendFactor dstfactor;
+  };
+  static constexpr std::array<LogicOpApproximation, 16> approximations = {{
+      {false, BlendMode::ZERO, BlendMode::ZERO},            // CLEAR
+      {false, BlendMode::DSTCLR, BlendMode::ZERO},          // AND
+      {true, BlendMode::ONE, BlendMode::INVSRCCLR},         // AND_REVERSE
+      {false, BlendMode::ONE, BlendMode::ZERO},             // COPY
+      {true, BlendMode::DSTCLR, BlendMode::ONE},            // AND_INVERTED
+      {false, BlendMode::ZERO, BlendMode::ONE},             // NOOP
+      {false, BlendMode::INVDSTCLR, BlendMode::INVSRCCLR},  // XOR
+      {false, BlendMode::INVDSTCLR, BlendMode::ONE},        // OR
+      {false, BlendMode::INVSRCCLR, BlendMode::INVDSTCLR},  // NOR
+      {false, BlendMode::INVSRCCLR, BlendMode::ZERO},       // EQUIV
+      {false, BlendMode::INVDSTCLR, BlendMode::INVDSTCLR},  // INVERT
+      {false, BlendMode::ONE, BlendMode::INVDSTALPHA},      // OR_REVERSE
+      {false, BlendMode::INVSRCCLR, BlendMode::INVSRCCLR},  // COPY_INVERTED
+      {false, BlendMode::INVSRCCLR, BlendMode::ONE},        // OR_INVERTED
+      {false, BlendMode::INVDSTCLR, BlendMode::INVSRCCLR},  // NAND
+      {false, BlendMode::ONE, BlendMode::ONE},              // SET
+  }};
+
+  logicopenable = false;
+  blendenable = true;
+  subtract = approximations[logicmode].subtract;
+  srcfactor = approximations[logicmode].srcfactor;
+  dstfactor = approximations[logicmode].dstfactor;
+}
+
 BlendingState& BlendingState::operator=(const BlendingState& rhs)
 {
   hex = rhs.hex;
@@ -206,10 +249,19 @@ RasterizationState GetInvalidRasterizationState()
   return state;
 }
 
-RasterizationState GetNoCullRasterizationState()
+RasterizationState GetNoCullRasterizationState(PrimitiveType primitive)
 {
   RasterizationState state = {};
   state.cullmode = GenMode::CULL_NONE;
+  state.primitive = primitive;
+  return state;
+}
+
+RasterizationState GetCullBackFaceRasterizationState(PrimitiveType primitive)
+{
+  RasterizationState state = {};
+  state.cullmode = GenMode::CULL_BACK;
+  state.primitive = primitive;
   return state;
 }
 
@@ -220,11 +272,20 @@ DepthState GetInvalidDepthState()
   return state;
 }
 
-DepthState GetNoDepthTestingDepthStencilState()
+DepthState GetNoDepthTestingDepthState()
 {
   DepthState state = {};
   state.testenable = false;
   state.updateenable = false;
+  state.func = ZMode::ALWAYS;
+  return state;
+}
+
+DepthState GetAlwaysWriteDepthState()
+{
+  DepthState state = {};
+  state.testenable = true;
+  state.updateenable = true;
   state.func = ZMode::ALWAYS;
   return state;
 }
@@ -248,6 +309,21 @@ BlendingState GetNoBlendingBlendState()
   state.logicopenable = false;
   state.colorupdate = true;
   state.alphaupdate = true;
+  return state;
+}
+
+BlendingState GetNoColorWriteBlendState()
+{
+  BlendingState state = {};
+  state.usedualsrc = false;
+  state.blendenable = false;
+  state.srcfactor = BlendMode::ONE;
+  state.srcfactoralpha = BlendMode::ONE;
+  state.dstfactor = BlendMode::ZERO;
+  state.dstfactoralpha = BlendMode::ZERO;
+  state.logicopenable = false;
+  state.colorupdate = false;
+  state.alphaupdate = false;
   return state;
 }
 
@@ -287,4 +363,20 @@ SamplerState GetLinearSamplerState()
   state.anisotropic_filtering = false;
   return state;
 }
+
+FramebufferState GetColorFramebufferState(AbstractTextureFormat format)
+{
+  FramebufferState state = {};
+  state.color_texture_format = format;
+  state.depth_texture_format = AbstractTextureFormat::Undefined;
+  state.per_sample_shading = false;
+  state.samples = 1;
+  return state;
 }
+
+FramebufferState GetRGBA8FramebufferState()
+{
+  return GetColorFramebufferState(AbstractTextureFormat::RGBA8);
+}
+
+}  // namespace RenderState

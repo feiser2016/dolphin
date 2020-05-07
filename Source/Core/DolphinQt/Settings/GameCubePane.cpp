@@ -12,7 +12,6 @@
 #include <QGroupBox>
 #include <QInputDialog>
 #include <QLabel>
-#include <QMessageBox>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -29,6 +28,8 @@
 #include "Core/HW/GCMemcard/GCMemcard.h"
 
 #include "DolphinQt/Config/Mapping/MappingWindow.h"
+#include "DolphinQt/GCMemcardManager.h"
+#include "DolphinQt/QtUtils/ModalMessageBox.h"
 
 enum
 {
@@ -55,7 +56,6 @@ void GameCubePane::CreateWidgets()
   ipl_box->setLayout(ipl_layout);
 
   m_skip_main_menu = new QCheckBox(tr("Skip Main Menu"), ipl_box);
-  m_override_language_ntsc = new QCheckBox(tr("Override Language on NTSC Games"), ipl_box);
   m_language_combo = new QComboBox(ipl_box);
   m_language_combo->setCurrentIndex(-1);
 
@@ -70,7 +70,6 @@ void GameCubePane::CreateWidgets()
   ipl_layout->addWidget(m_skip_main_menu, 0, 0);
   ipl_layout->addWidget(new QLabel(tr("System Language:")), 1, 0);
   ipl_layout->addWidget(m_language_combo, 1, 1);
-  ipl_layout->addWidget(m_override_language_ntsc, 2, 0);
 
   // Device Settings
   QGroupBox* device_box = new QGroupBox(tr("Device Settings"), this);
@@ -131,18 +130,17 @@ void GameCubePane::ConnectWidgets()
 {
   // IPL Settings
   connect(m_skip_main_menu, &QCheckBox::stateChanged, this, &GameCubePane::SaveSettings);
-  connect(m_language_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+  connect(m_language_combo, qOverload<int>(&QComboBox::currentIndexChanged), this,
           &GameCubePane::SaveSettings);
-  connect(m_override_language_ntsc, &QCheckBox::stateChanged, this, &GameCubePane::SaveSettings);
 
   // Device Settings
   for (int i = 0; i < SLOT_COUNT; i++)
   {
-    connect(m_slot_combos[i], QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+    connect(m_slot_combos[i], qOverload<int>(&QComboBox::currentIndexChanged), this,
             [this, i] { UpdateButton(i); });
-    connect(m_slot_combos[i], QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+    connect(m_slot_combos[i], qOverload<int>(&QComboBox::currentIndexChanged), this,
             &GameCubePane::SaveSettings);
-    connect(m_slot_buttons[i], &QPushButton::pressed, this, [this, i] { OnConfigPressed(i); });
+    connect(m_slot_buttons[i], &QPushButton::clicked, [this, i] { OnConfigPressed(i); });
   }
 }
 
@@ -188,7 +186,7 @@ void GameCubePane::OnConfigPressed(int slot)
   {
     bool ok;
     const auto new_mac = QInputDialog::getText(
-        this, tr("Broadband adapter MAC address"), tr("Enter new broadband adapter MAC address:"),
+        this, tr("Broadband Adapter MAC address"), tr("Enter new Broadband Adapter MAC address:"),
         QLineEdit::Normal, QString::fromStdString(SConfig::GetInstance().m_bba_mac), &ok);
     if (ok)
       SConfig::GetInstance().m_bba_mac = new_mac.toStdString();
@@ -212,15 +210,15 @@ void GameCubePane::OnConfigPressed(int slot)
   {
     if (File::Exists(filename.toStdString()))
     {
-      GCMemcard mc(filename.toStdString());
+      auto [error_code, mc] = GCMemcard::Open(filename.toStdString());
 
-      if (!mc.IsValid())
+      if (error_code.HasCriticalErrors() || !mc || !mc->IsValid())
       {
-        QMessageBox::critical(this, tr("Error"),
-                              tr("Cannot use that file as a memory card.\n%1\n"
-                                 "is not a valid GameCube memory card file")
-                                  .arg(filename));
-
+        ModalMessageBox::critical(
+            this, tr("Error"),
+            tr("The file\n%1\nis either corrupted or not a GameCube memory card file.\n%2")
+                .arg(filename)
+                .arg(GCMemcardManager::GetErrorMessagesForErrorCode(error_code)));
         return;
       }
     }
@@ -237,7 +235,8 @@ void GameCubePane::OnConfigPressed(int slot)
 
       if (path_abs == path_b)
       {
-        QMessageBox::critical(this, tr("Error"), tr("The same file can't be used in both slots."));
+        ModalMessageBox::critical(this, tr("Error"),
+                                  tr("The same file can't be used in both slots."));
         return;
       }
     }
@@ -300,7 +299,6 @@ void GameCubePane::LoadSettings()
   // IPL Settings
   m_skip_main_menu->setChecked(params.bHLE_BS2);
   m_language_combo->setCurrentIndex(m_language_combo->findData(params.SelectedLanguage));
-  m_override_language_ntsc->setChecked(params.bOverrideGCLanguage);
 
   bool have_menu = false;
 
@@ -316,7 +314,7 @@ void GameCubePane::LoadSettings()
   }
 
   m_skip_main_menu->setEnabled(have_menu);
-  m_skip_main_menu->setToolTip(have_menu ? QStringLiteral("") :
+  m_skip_main_menu->setToolTip(have_menu ? QString{} :
                                            tr("Put Main Menu roms in User/GC/{region}."));
 
   // Device Settings
@@ -332,6 +330,8 @@ void GameCubePane::LoadSettings()
 
 void GameCubePane::SaveSettings()
 {
+  Config::ConfigChangeCallbackGuard config_guard;
+
   SConfig& params = SConfig::GetInstance();
 
   // IPL Settings
@@ -339,9 +339,6 @@ void GameCubePane::SaveSettings()
   Config::SetBaseOrCurrent(Config::MAIN_SKIP_IPL, m_skip_main_menu->isChecked());
   params.SelectedLanguage = m_language_combo->currentData().toInt();
   Config::SetBaseOrCurrent(Config::MAIN_GC_LANGUAGE, m_language_combo->currentData().toInt());
-  params.bOverrideGCLanguage = m_override_language_ntsc->isChecked();
-  Config::SetBaseOrCurrent(Config::MAIN_OVERRIDE_GC_LANGUAGE,
-                           m_override_language_ntsc->isChecked());
 
   for (int i = 0; i < SLOT_COUNT; i++)
   {

@@ -8,12 +8,12 @@
 #include <QDialogButtonBox>
 #include <QGridLayout>
 #include <QHeaderView>
-#include <QMessageBox>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QUrl>
 
 #include "Common/FileUtil.h"
+#include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "UICommon/ResourcePack/Manager.h"
 
 ResourcePackManager::ResourcePackManager(QWidget* widget) : QDialog(widget)
@@ -33,6 +33,7 @@ void ResourcePackManager::CreateWidgets()
   auto* layout = new QGridLayout;
 
   m_table_widget = new QTableWidget;
+  m_table_widget->setTabKeyNavigation(false);
 
   m_open_directory_button = new QPushButton(tr("Open Directory..."));
   m_change_button = new QPushButton(tr("Install"));
@@ -60,13 +61,13 @@ void ResourcePackManager::CreateWidgets()
 
 void ResourcePackManager::ConnectWidgets()
 {
-  connect(m_open_directory_button, &QPushButton::pressed, this,
+  connect(m_open_directory_button, &QPushButton::clicked, this,
           &ResourcePackManager::OpenResourcePackDir);
-  connect(m_refresh_button, &QPushButton::pressed, this, &ResourcePackManager::Refresh);
-  connect(m_change_button, &QPushButton::pressed, this, &ResourcePackManager::Change);
-  connect(m_remove_button, &QPushButton::pressed, this, &ResourcePackManager::Remove);
-  connect(m_priority_up_button, &QPushButton::pressed, this, &ResourcePackManager::PriorityUp);
-  connect(m_priority_down_button, &QPushButton::pressed, this, &ResourcePackManager::PriorityDown);
+  connect(m_refresh_button, &QPushButton::clicked, this, &ResourcePackManager::Refresh);
+  connect(m_change_button, &QPushButton::clicked, this, &ResourcePackManager::Change);
+  connect(m_remove_button, &QPushButton::clicked, this, &ResourcePackManager::Remove);
+  connect(m_priority_up_button, &QPushButton::clicked, this, &ResourcePackManager::PriorityUp);
+  connect(m_priority_down_button, &QPushButton::clicked, this, &ResourcePackManager::PriorityDown);
 
   connect(m_table_widget, &QTableWidget::itemSelectionChanged, this,
           &ResourcePackManager::SelectionChanged);
@@ -86,8 +87,8 @@ void ResourcePackManager::RepopulateTable()
   m_table_widget->clear();
   m_table_widget->setColumnCount(6);
 
-  m_table_widget->setHorizontalHeaderLabels({QStringLiteral(""), tr("Name"), tr("Version"),
-                                             tr("Description"), tr("Author"), tr("Website")});
+  m_table_widget->setHorizontalHeaderLabels(
+      {QString{}, tr("Name"), tr("Version"), tr("Description"), tr("Author"), tr("Website")});
 
   auto* header = m_table_widget->horizontalHeader();
 
@@ -95,6 +96,7 @@ void ResourcePackManager::RepopulateTable()
     header->setSectionResizeMode(i, QHeaderView::ResizeToContents);
 
   header->setStretchLastSection(true);
+  header->setHighlightSections(false);
 
   int size = static_cast<int>(ResourcePack::GetPacks().size());
 
@@ -141,7 +143,7 @@ void ResourcePackManager::RepopulateTable()
 
       if (ResourcePack::IsInstalled(pack))
       {
-        item->setBackgroundColor(QColor(Qt::green));
+        item->setBackground(QColor(Qt::green));
 
         auto font = item->font();
         font.setBold(true);
@@ -160,6 +162,12 @@ void ResourcePackManager::RepopulateTable()
   SelectionChanged();
 }
 
+// Revert the indicies as to be more intuitive for users
+int ResourcePackManager::GetResourcePackIndex(QTableWidgetItem* item) const
+{
+  return m_table_widget->rowCount() - 1 - item->row();
+}
+
 void ResourcePackManager::Change()
 {
   auto items = m_table_widget->selectedItems();
@@ -167,10 +175,14 @@ void ResourcePackManager::Change()
   if (items.empty())
     return;
 
-  if (ResourcePack::IsInstalled(ResourcePack::GetPacks()[items[0]->row()]))
+  if (ResourcePack::IsInstalled(ResourcePack::GetPacks()[GetResourcePackIndex(items[0])]))
+  {
     Uninstall();
+  }
   else
+  {
     Install();
+  }
 }
 
 void ResourcePackManager::Install()
@@ -180,13 +192,13 @@ void ResourcePackManager::Install()
   if (items.empty())
     return;
 
-  auto& item = ResourcePack::GetPacks()[m_table_widget->rowCount() - 1 - items[0]->row()];
+  auto& item = ResourcePack::GetPacks()[GetResourcePackIndex(items[0])];
 
-  bool success = item.Install(File::GetUserPath(D_USER_IDX));
+  bool success = item.Install(File::GetUserPath(D_LOAD_IDX));
 
   if (!success)
   {
-    QMessageBox::critical(
+    ModalMessageBox::critical(
         this, tr("Error"),
         tr("Failed to install pack: %1").arg(QString::fromStdString(item.GetError())));
   }
@@ -201,13 +213,13 @@ void ResourcePackManager::Uninstall()
   if (items.empty())
     return;
 
-  auto& item = ResourcePack::GetPacks()[m_table_widget->rowCount() - 1 - items[0]->row()];
+  auto& item = ResourcePack::GetPacks()[GetResourcePackIndex(items[0])];
 
-  bool success = item.Uninstall(File::GetUserPath(D_USER_IDX));
+  bool success = item.Uninstall(File::GetUserPath(D_LOAD_IDX));
 
   if (!success)
   {
-    QMessageBox::critical(
+    ModalMessageBox::critical(
         this, tr("Error"),
         tr("Failed to uninstall pack: %1").arg(QString::fromStdString(item.GetError())));
   }
@@ -222,7 +234,7 @@ void ResourcePackManager::Remove()
   if (items.empty())
     return;
 
-  QMessageBox box(this);
+  ModalMessageBox box(this);
   box.setWindowTitle(tr("Confirmation"));
   box.setText(tr("Are you sure you want to delete this pack?"));
   box.setIcon(QMessageBox::Warning);
@@ -232,8 +244,7 @@ void ResourcePackManager::Remove()
     return;
 
   Uninstall();
-  File::Delete(
-      ResourcePack::GetPacks()[m_table_widget->rowCount() - 1 - items[0]->row()].GetPath());
+  File::Delete(ResourcePack::GetPacks()[GetResourcePackIndex(items[0])].GetPath());
   RepopulateTable();
 }
 
@@ -244,7 +255,7 @@ void ResourcePackManager::PriorityDown()
   if (items.empty())
     return;
 
-  int row = m_table_widget->rowCount() - 1 - items[0]->row();
+  auto row = GetResourcePackIndex(items[0]);
 
   if (items[0]->row() >= m_table_widget->rowCount())
     return;
@@ -269,7 +280,7 @@ void ResourcePackManager::PriorityUp()
   if (items.empty())
     return;
 
-  int row = m_table_widget->rowCount() - 1 - items[0]->row();
+  auto row = GetResourcePackIndex(items[0]);
 
   if (items[0]->row() == 0)
     return;
@@ -301,9 +312,10 @@ void ResourcePackManager::SelectionChanged()
 
   if (has_selection)
   {
-    m_change_button->setText(ResourcePack::IsInstalled(ResourcePack::GetPacks()[items[0]->row()]) ?
-                                 tr("Uninstall") :
-                                 tr("Install"));
+    m_change_button->setText(
+        ResourcePack::IsInstalled(ResourcePack::GetPacks()[GetResourcePackIndex(items[0])]) ?
+            tr("Uninstall") :
+            tr("Install"));
   }
 
   for (auto* item : {m_change_button, m_remove_button})

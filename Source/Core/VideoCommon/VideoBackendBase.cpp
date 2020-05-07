@@ -10,21 +10,31 @@
 #include <string>
 #include <vector>
 
+#include "fmt/format.h"
+
 #include "Common/ChunkFile.h"
 #include "Common/CommonTypes.h"
 #include "Common/Event.h"
 #include "Common/Logging/Log.h"
+
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
-#include "Core/Host.h"
+
+// OpenGL is not available on Windows-on-ARM64
+#if !defined(_WIN32) || !defined(_M_ARM64)
+#define HAS_OPENGL 1
+#endif
 
 // TODO: ugly
 #ifdef _WIN32
 #include "VideoBackends/D3D/VideoBackend.h"
+#include "VideoBackends/D3D12/VideoBackend.h"
 #endif
 #include "VideoBackends/Null/VideoBackend.h"
+#ifdef HAS_OPENGL
 #include "VideoBackends/OGL/VideoBackend.h"
 #include "VideoBackends/Software/VideoBackend.h"
+#endif
 #include "VideoBackends/Vulkan/VideoBackend.h"
 
 #include "VideoCommon/AsyncRequests.h"
@@ -34,14 +44,15 @@
 #include "VideoCommon/Fifo.h"
 #include "VideoCommon/GeometryShaderManager.h"
 #include "VideoCommon/IndexGenerator.h"
-#include "VideoCommon/OnScreenDisplay.h"
 #include "VideoCommon/OpcodeDecoding.h"
 #include "VideoCommon/PixelEngine.h"
 #include "VideoCommon/PixelShaderManager.h"
 #include "VideoCommon/RenderBase.h"
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/VertexLoaderManager.h"
+#include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VertexShaderManager.h"
+#include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/VideoState.h"
 
@@ -59,6 +70,12 @@ extern "C" {
 __declspec(dllexport) DWORD NvOptimusEnablement = 1;
 }
 #endif
+
+std::string VideoBackendBase::BadShaderFilename(const char* shader_stage, int counter)
+{
+  return fmt::format("{}bad_{}_{}_{}.txt", File::GetUserPath(D_DUMP_IDX), shader_stage,
+                     g_video_backend->GetName(), counter);
+}
 
 void VideoBackendBase::Video_ExitLoop()
 {
@@ -181,12 +198,17 @@ u16 VideoBackendBase::Video_GetBoundingBox(int index)
 void VideoBackendBase::PopulateList()
 {
   // OGL > D3D11 > Vulkan > SW > Null
+#ifdef HAS_OPENGL
   g_available_video_backends.push_back(std::make_unique<OGL::VideoBackend>());
+#endif
 #ifdef _WIN32
   g_available_video_backends.push_back(std::make_unique<DX11::VideoBackend>());
+  g_available_video_backends.push_back(std::make_unique<DX12::VideoBackend>());
 #endif
   g_available_video_backends.push_back(std::make_unique<Vulkan::VideoBackend>());
+#ifdef HAS_OPENGL
   g_available_video_backends.push_back(std::make_unique<SW::VideoSoftware>());
+#endif
   g_available_video_backends.push_back(std::make_unique<Null::VideoBackend>());
 
   const auto iter =
@@ -235,41 +257,22 @@ void VideoBackendBase::PopulateBackendInfo()
   g_Config.Refresh();
 }
 
-// Run from the CPU thread
 void VideoBackendBase::DoState(PointerWrap& p)
 {
-  bool software = false;
-  p.Do(software);
-
-  if (p.GetMode() == PointerWrap::MODE_READ && software == true)
+  if (!SConfig::GetInstance().bCPUThread)
   {
-    // change mode to abort load of incompatible save state.
-    p.SetMode(PointerWrap::MODE_VERIFY);
+    VideoCommon_DoState(p);
+    return;
   }
 
-  VideoCommon_DoState(p);
-  p.DoMarker("VideoCommon");
+  AsyncRequests::Event ev = {};
+  ev.do_save_state.p = &p;
+  ev.type = AsyncRequests::Event::DO_SAVE_STATE;
+  AsyncRequests::GetInstance()->PushEvent(ev, true);
 
-  // Refresh state.
-  if (p.GetMode() == PointerWrap::MODE_READ)
-  {
-    m_invalid = true;
-
-    // Clear all caches that touch RAM
-    // (? these don't appear to touch any emulation state that gets saved. moved to on load only.)
-    VertexLoaderManager::MarkAllDirty();
-  }
-}
-
-void VideoBackendBase::CheckInvalidState()
-{
-  if (m_invalid)
-  {
-    m_invalid = false;
-
-    BPReload();
-    g_texture_cache->Invalidate();
-  }
+  // Let the GPU thread sleep after loading the state, so we're not spinning if paused after loading
+  // a state. The next GP burst will wake it up again.
+  Fifo::GpuMaySleep();
 }
 
 void VideoBackendBase::InitializeShared()
@@ -281,20 +284,17 @@ void VideoBackendBase::InitializeShared()
   // do not initialize again for the config window
   m_initialized = true;
 
-  m_invalid = false;
-  frameCount = 0;
-
   CommandProcessor::Init();
   Fifo::Init();
   OpcodeDecoder::Init();
   PixelEngine::Init();
   BPInit();
   VertexLoaderManager::Init();
-  IndexGenerator::Init();
   VertexShaderManager::Init();
   GeometryShaderManager::Init();
   PixelShaderManager::Init();
 
+  g_Config.VerifyValidity();
   UpdateActiveConfig();
 }
 

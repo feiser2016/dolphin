@@ -15,6 +15,7 @@ VULKAN_MODULE_ENTRY_POINT(vkGetInstanceProcAddr, true)
 VULKAN_MODULE_ENTRY_POINT(vkGetDeviceProcAddr, true)
 VULKAN_MODULE_ENTRY_POINT(vkEnumerateInstanceExtensionProperties, true)
 VULKAN_MODULE_ENTRY_POINT(vkEnumerateInstanceLayerProperties, true)
+VULKAN_MODULE_ENTRY_POINT(vkEnumerateInstanceVersion, false)
 
 #endif  // VULKAN_MODULE_ENTRY_POINT
 
@@ -39,33 +40,28 @@ VULKAN_INSTANCE_ENTRY_POINT(vkGetPhysicalDeviceSurfaceFormatsKHR, false)
 VULKAN_INSTANCE_ENTRY_POINT(vkGetPhysicalDeviceSurfacePresentModesKHR, false)
 
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
-
 VULKAN_INSTANCE_ENTRY_POINT(vkCreateWin32SurfaceKHR, false)
 VULKAN_INSTANCE_ENTRY_POINT(vkGetPhysicalDeviceWin32PresentationSupportKHR, false)
+#endif
 
-#elif defined(VK_USE_PLATFORM_XLIB_KHR)
-
+#if defined(VK_USE_PLATFORM_XLIB_KHR)
 VULKAN_INSTANCE_ENTRY_POINT(vkCreateXlibSurfaceKHR, false)
 VULKAN_INSTANCE_ENTRY_POINT(vkGetPhysicalDeviceXlibPresentationSupportKHR, false)
+#endif
 
-#elif defined(VK_USE_PLATFORM_XCB_KHR)
-
-VULKAN_INSTANCE_ENTRY_POINT(vkCreateXcbSurfaceKHR, false)
-VULKAN_INSTANCE_ENTRY_POINT(vkGetPhysicalDeviceXcbPresentationSupportKHR, false)
-
-#elif defined(VK_USE_PLATFORM_ANDROID_KHR)
-
+#if defined(VK_USE_PLATFORM_ANDROID_KHR)
 VULKAN_INSTANCE_ENTRY_POINT(vkCreateAndroidSurfaceKHR, false)
+#endif
 
-#elif defined(VK_USE_PLATFORM_MACOS_MVK)
-
-VULKAN_INSTANCE_ENTRY_POINT(vkCreateMacOSSurfaceMVK, false)
-
+#if defined(VK_USE_PLATFORM_METAL_EXT)
+VULKAN_INSTANCE_ENTRY_POINT(vkCreateMetalSurfaceEXT, false)
 #endif
 
 VULKAN_INSTANCE_ENTRY_POINT(vkCreateDebugReportCallbackEXT, false)
 VULKAN_INSTANCE_ENTRY_POINT(vkDestroyDebugReportCallbackEXT, false)
 VULKAN_INSTANCE_ENTRY_POINT(vkDebugReportMessageEXT, false)
+VULKAN_INSTANCE_ENTRY_POINT(vkGetPhysicalDeviceProperties2, false)
+VULKAN_INSTANCE_ENTRY_POINT(vkGetPhysicalDeviceSurfaceCapabilities2KHR, false)
 
 #endif  // VULKAN_INSTANCE_ENTRY_POINT
 
@@ -196,5 +192,10 @@ VULKAN_DEVICE_ENTRY_POINT(vkDestroySwapchainKHR, false)
 VULKAN_DEVICE_ENTRY_POINT(vkGetSwapchainImagesKHR, false)
 VULKAN_DEVICE_ENTRY_POINT(vkAcquireNextImageKHR, false)
 VULKAN_DEVICE_ENTRY_POINT(vkQueuePresentKHR, false)
+
+#ifdef SUPPORTS_VULKAN_EXCLUSIVE_FULLSCREEN
+VULKAN_DEVICE_ENTRY_POINT(vkAcquireFullScreenExclusiveModeEXT, false)
+VULKAN_DEVICE_ENTRY_POINT(vkReleaseFullScreenExclusiveModeEXT, false)
+#endif
 
 #endif  // VULKAN_DEVICE_ENTRY_POINT

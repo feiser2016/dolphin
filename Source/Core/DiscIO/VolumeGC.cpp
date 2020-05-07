@@ -72,6 +72,15 @@ std::string VolumeGC::GetGameID(const Partition& partition) const
   return DecodeString(id);
 }
 
+std::string VolumeGC::GetGameTDBID(const Partition& partition) const
+{
+  // Don't return an ID for Datel discs
+  if (!GetBootDOLOffset(*this, PARTITION_NONE).has_value())
+    return "";
+
+  return GetGameID(partition);
+}
+
 Region VolumeGC::GetRegion() const
 {
   const std::optional<u32> region_code = ReadSwapped<u32>(0x458, PARTITION_NONE);
@@ -86,11 +95,12 @@ Country VolumeGC::GetCountry(const Partition& partition) const
   // The 0 that we use as a default value is mapped to Country::Unknown and Region::Unknown
   const u8 country = ReadSwapped<u8>(3, partition).value_or(0);
   const Region region = GetRegion();
+  const std::optional<u16> revision = GetRevision();
 
-  if (CountryCodeToRegion(country, Platform::GameCubeDisc, region) != region)
+  if (CountryCodeToRegion(country, Platform::GameCubeDisc, region, revision) != region)
     return TypicalCountryForRegion(region);
 
-  return CountryCodeToCountry(country, Platform::GameCubeDisc, region);
+  return CountryCodeToCountry(country, Platform::GameCubeDisc, region, revision);
 }
 
 std::string VolumeGC::GetMakerID(const Partition& partition) const
@@ -166,6 +176,11 @@ BlobType VolumeGC::GetBlobType() const
 u64 VolumeGC::GetSize() const
 {
   return m_reader->GetDataSize();
+}
+
+bool VolumeGC::IsSizeAccurate() const
+{
+  return m_reader->IsDataSizeAccurate();
 }
 
 u64 VolumeGC::GetRawSize() const
@@ -270,4 +285,4 @@ VolumeGC::ConvertedGCBanner VolumeGC::ExtractBannerInformation(const GCBanner& b
 
 VolumeGC::ConvertedGCBanner::ConvertedGCBanner() = default;
 VolumeGC::ConvertedGCBanner::~ConvertedGCBanner() = default;
-}  // namespace
+}  // namespace DiscIO

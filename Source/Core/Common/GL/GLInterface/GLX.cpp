@@ -73,9 +73,9 @@ void GLContextGLX::Swap()
 
 // Create rendering window.
 // Call browser: Core.cpp:EmuThread() > main.cpp:Video_Initialize()
-bool GLContextGLX::Initialize(void* display_handle, void* window_handle, bool stereo, bool core)
+bool GLContextGLX::Initialize(const WindowSystemInfo& wsi, bool stereo, bool core)
 {
-  m_display = static_cast<Display*>(display_handle);
+  m_display = static_cast<Display*>(wsi.display_connection);
   int screen = DefaultScreen(m_display);
 
   // checking glx version
@@ -146,12 +146,12 @@ bool GLContextGLX::Initialize(void* display_handle, void* window_handle, bool st
       s_glxError = false;
       m_context = glXCreateContextAttribs(m_display, m_fbconfig, 0, True, &context_attribs[0]);
       XSync(m_display, False);
-      m_attribs.insert(m_attribs.end(), context_attribs.begin(), context_attribs.end());
       if (!m_context || s_glxError)
         continue;
 
       // Got a context.
       INFO_LOG(VIDEO, "Created a GLX context with version %d.%d", version.first, version.second);
+      m_attribs.insert(m_attribs.end(), context_attribs.begin(), context_attribs.end());
       break;
     }
   }
@@ -204,7 +204,7 @@ bool GLContextGLX::Initialize(void* display_handle, void* window_handle, bool st
     }
   }
 
-  if (!CreateWindowSurface(reinterpret_cast<Window>(window_handle)))
+  if (!CreateWindowSurface(reinterpret_cast<Window>(wsi.render_surface)))
   {
     ERROR_LOG(VIDEO, "Error: CreateWindowSurface failed\n");
     XSetErrorHandler(oldHandler);
